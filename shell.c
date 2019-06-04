@@ -32,6 +32,8 @@ int cmd_exit(struct tokens *tokens);
 int cmd_help(struct tokens *tokens);
 int cmd_chdir(struct tokens *tokens);
 int cmd_pwd(struct tokens *tokens);
+int cmd_exec(struct tokens *tokens);
+int cmd_exec2(char *path, char *name, char **args);
 
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(struct tokens *tokens);
@@ -47,7 +49,8 @@ fun_desc_t cmd_table[] = {
   {cmd_help, "?", "show this help menu"},
   {cmd_exit, "exit", "exit the command shell"},
   {cmd_chdir, "cd", "change the current directory"},
-  {cmd_pwd, "pwd", "print the working directory"}
+  {cmd_pwd, "pwd", "print the working directory"},
+  {cmd_exec, "execv", "execute the file"}
 };
 
 /* Change the current working directory */
@@ -82,7 +85,7 @@ int cmd_pwd(unused struct tokens *tokens) {
 
 /* Prints a helpful description for the given command */
 int cmd_help(unused struct tokens *tokens) {
-  for (unsigned int i = 0; i < sizeof(cmd_table) / sizeof(fun_desc_t); i++)
+  for (unsigned int i = 0; i < sizeof(cmd_table) / sizeof(fun_desc_t) - 1; i++)
     printf("%s - %s\n", cmd_table[i].cmd, cmd_table[i].doc);
   return 1;
 }
@@ -93,33 +96,54 @@ int cmd_exit(unused struct tokens *tokens) {
 }
 
 /* execute the command */
-int cmd_exec(char *name) {
-  char *paths = getenv("PATH");
-  int start;
-  int end;
-  for (start = 0, end = 0; paths[end] !='\0'; end++) {
-    if (paths[end] == ':') {
-      char path[end-start+1];
-      int idx = 0;
-      for (int i = start; i < end; i++)
-        path[idx++] = paths[i];
-      paths[idx] = '\0';
-      start = end+1;
-      if (cmd_exec2(path, name) == 0)
-        return 0;
+int cmd_exec(unused struct tokens *tokens) {
+  char *cmd = tokens_get_token(tokens, 0);
+  int len = tokens_get_length(tokens);
+  char *args[len+1];
+  for (int i = 0; i < len; i++) {
+    args[i] = tokens_get_token(tokens, i);
+  }
+  args[len] = NULL;
+
+  if (access(cmd, F_OK) != -1) {
+    if (fork() == 0) {
+      execv(cmd, args);
+    }
+    else {
+      int status;
+      wait(&status);
     }
   }
-  char path[end-start+1];
-  int idx = 0;
-  for (int i = start; i < end; i++)
-    path[idx++] = paths[i];
-  if (cmd_exec2(path, name) == 0)
-    return 0;
+  else {
+    char *paths = getenv("PATH");
+    int start;
+    int end;
+    printf("the env path would be %s\n", paths);
+    for (start = 0, end = 0; paths[end] !='\0'; end++) {
+      if (paths[end] == ':') {
+        char path[end-start+1];
+        int idx = 0;
+        for (int i = start; i < end; i++)
+          path[idx++] = paths[i];
+        path[idx] = '\0';
+        start = end+1;
+        if (cmd_exec2(path, cmd, args) == 0)
+          return 0;
+      }
+    }
+    char path[end-start+1];
+    int idx = 0;
+    for (int i = start; i < end; i++)
+      path[idx++] = paths[i];
+    if (cmd_exec2(path, cmd, args) == 0)
+      return 0;
+  }
   return -1;
 }
 
 /* search the cmd in the directory and execute the cmd */
-int cmd_exec2(char *path, char *name) {
+int cmd_exec2(char *path, char *name, char **args) {
+  printf("direcotry: %s, cmd: %s\n", path, name);
   DIR *dir;
   struct dirent *entry;
   if ((dir = opendir(path)) == NULL) {
@@ -133,8 +157,9 @@ int cmd_exec2(char *path, char *name) {
           strcpy(exec_path, path);
           strcat(exec_path, "/");
           strcat(exec_path, entry->d_name);
-          execv(exec_path);
-
+          execv(exec_path, args);
+        }
+        else {
           int status;
           wait(&status);
           if (status == 0)
@@ -142,16 +167,17 @@ int cmd_exec2(char *path, char *name) {
         }
       }
     }
+    closedir(dir);
   }
   return -1;
 }
 
 /* Looks up the built-in command, if it exists. */
 int lookup(char cmd[]) {
-  for (unsigned int i = 0; i < sizeof(cmd_table) / sizeof(fun_desc_t); i++)
+  for (unsigned int i = 0; i < sizeof(cmd_table) / sizeof(fun_desc_t) - 1; i++)
     if (cmd && (strcmp(cmd_table[i].cmd, cmd) == 0))
       return i;
-  return cmd_exec(cmd);
+  return sizeof(cmd_table) / sizeof(fun_desc_t) - 1;
 }
 
 /* Intialization procedures for this shell */
