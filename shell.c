@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <dirent.h>
 
 #include "tokenizer.h"
 
@@ -91,12 +92,66 @@ int cmd_exit(unused struct tokens *tokens) {
   exit(0);
 }
 
+/* execute the command */
+int cmd_exec(char *name) {
+  char *paths = getenv("PATH");
+  int start;
+  int end;
+  for (start = 0, end = 0; paths[end] !='\0'; end++) {
+    if (paths[end] == ':') {
+      char path[end-start+1];
+      int idx = 0;
+      for (int i = start; i < end; i++)
+        path[idx++] = paths[i];
+      paths[idx] = '\0';
+      start = end+1;
+      if (cmd_exec2(path, name) == 0)
+        return 0;
+    }
+  }
+  char path[end-start+1];
+  int idx = 0;
+  for (int i = start; i < end; i++)
+    path[idx++] = paths[i];
+  if (cmd_exec2(path, name) == 0)
+    return 0;
+  return -1;
+}
+
+/* search the cmd in the directory and execute the cmd */
+int cmd_exec2(char *path, char *name) {
+  DIR *dir;
+  struct dirent *entry;
+  if ((dir = opendir(path)) == NULL) {
+    perror("unable to open the directory");
+  }
+  else {
+    while ((entry = readdir(dir)) != NULL) {
+      if (strcmp(name, entry->d_name) == 0) {
+        if (fork() == 0) {
+          char exec_path[strlen(path) + strlen(name) + 2];
+          strcpy(exec_path, path);
+          strcat(exec_path, "/");
+          strcat(exec_path, entry->d_name);
+          execv(exec_path);
+
+          int status;
+          wait(&status);
+          if (status == 0)
+            return 0;
+        }
+      }
+    }
+  }
+  return -1;
+}
+
 /* Looks up the built-in command, if it exists. */
 int lookup(char cmd[]) {
   for (unsigned int i = 0; i < sizeof(cmd_table) / sizeof(fun_desc_t); i++)
     if (cmd && (strcmp(cmd_table[i].cmd, cmd) == 0))
       return i;
-  return -1;
+  return cmd_exec(cmd);
 }
 
 /* Intialization procedures for this shell */
