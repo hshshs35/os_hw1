@@ -10,6 +10,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <fcntl.h>
 
 #include "tokenizer.h"
 
@@ -33,7 +34,7 @@ int cmd_help(struct tokens *tokens);
 int cmd_chdir(struct tokens *tokens);
 int cmd_pwd(struct tokens *tokens);
 int cmd_exec(struct tokens *tokens);
-int cmd_exec2(char *path, char *name, char **args);
+int cmd_exec2(char *path, char *name, char **args, char *filename, int direction);
 
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(struct tokens *tokens);
@@ -98,15 +99,38 @@ int cmd_exit(unused struct tokens *tokens) {
 /* execute the command */
 int cmd_exec(unused struct tokens *tokens) {
   char *cmd = tokens_get_token(tokens, 0);
-  int len = tokens_get_length(tokens);
+  size_t len = tokens_get_length(tokens);
   char *args[len+1];
-  for (int i = 0; i < len; i++) {
+  char *filename = NULL;
+  int direction = 0;
+
+  if (len-2 > 0) {
+    char *sign = tokens_get_token(tokens, len-2);
+    if (strcmp(sign, "<") == 0 || strcmp(sign, ">") == 0) {
+      direction = strcmp(sign, "<") == 0 ? -1 : 1;
+      filename = tokens_get_token(tokens, len-1);
+    }
+  }
+
+  size_t args_length = direction == 0 ? len : len-2;
+  for (int i = 0; i < args_length; i++) {
     args[i] = tokens_get_token(tokens, i);
   }
-  args[len] = NULL;
+  args[args_length] = NULL;
 
   if (access(cmd, F_OK) != -1) {
     if (fork() == 0) {
+      int fd;
+      if (direction == -1) {
+        fd = open(filename, O_RDONLY);
+        dup2(fd, 0);
+        close(fd);
+      }
+      else if (direction == 1) {
+         fd = open(filename, O_CREAT | O_WRONLY, 0644);
+         dup2(fd, 1);
+         close(fd);
+      }
       execv(cmd, args);
     }
     else {
@@ -127,7 +151,7 @@ int cmd_exec(unused struct tokens *tokens) {
           path[idx++] = paths[i];
         path[idx] = '\0';
         start = end+1;
-        if (cmd_exec2(path, cmd, args) == 0)
+        if (cmd_exec2(path, cmd, args, filename, direction) == 0)
           return 0;
       }
     }
@@ -135,14 +159,14 @@ int cmd_exec(unused struct tokens *tokens) {
     int idx = 0;
     for (int i = start; i < end; i++)
       path[idx++] = paths[i];
-    if (cmd_exec2(path, cmd, args) == 0)
+    if (cmd_exec2(path, cmd, args, filename, direction) == 0)
       return 0;
   }
   return -1;
 }
 
 /* search the cmd in the directory and execute the cmd */
-int cmd_exec2(char *path, char *name, char **args) {
+int cmd_exec2(char *path, char *name, char **args, char *filename, int direction) {
   printf("direcotry: %s, cmd: %s\n", path, name);
   DIR *dir;
   struct dirent *entry;
@@ -157,6 +181,17 @@ int cmd_exec2(char *path, char *name, char **args) {
           strcpy(exec_path, path);
           strcat(exec_path, "/");
           strcat(exec_path, entry->d_name);
+          int fd;
+          if (direction == -1) {
+            fd = open(filename, O_RDONLY);
+            dup2(fd, 0);
+            close(fd);
+          }
+          else if (direction == 1) {
+            fd = open(filename, O_CREAT | O_WRONLY, 0644);
+            dup2(fd, 1);
+            close(fd);
+          }
           execv(exec_path, args);
         }
         else {
