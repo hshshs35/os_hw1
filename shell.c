@@ -99,7 +99,7 @@ int cmd_exit(unused struct tokens *tokens) {
 /* execute the command */
 int cmd_exec(unused struct tokens *tokens) {
   char *cmd = tokens_get_token(tokens, 0);
-  size_t len = tokens_get_length(tokens);
+  int len = tokens_get_length(tokens);
   char *args[len+1];
   char *filename = NULL;
   int direction = 0;
@@ -142,7 +142,6 @@ int cmd_exec(unused struct tokens *tokens) {
     char *paths = getenv("PATH");
     int start;
     int end;
-    printf("the env path would be %s\n", paths);
     for (start = 0, end = 0; paths[end] !='\0'; end++) {
       if (paths[end] == ':') {
         char path[end-start+1];
