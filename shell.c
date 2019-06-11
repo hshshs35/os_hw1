@@ -98,6 +98,7 @@ int cmd_exit(unused struct tokens *tokens) {
 
 /* execute the command */
 int cmd_exec(unused struct tokens *tokens) {
+  printf("the parent pid is %d and pgrp ID is %d\n", getpid(), getpgrp());
   char *cmd = tokens_get_token(tokens, 0);
   int len = tokens_get_length(tokens);
   char *args[len+1];
@@ -118,8 +119,11 @@ int cmd_exec(unused struct tokens *tokens) {
   }
   args[args_length] = NULL;
 
+  pid_t cpid;
+
   if (access(cmd, F_OK) != -1) {
-    if (fork() == 0) {
+    if ((cpid=fork()) == 0) {
+      printf("the child pgid is %d\n", getpgrp());
       int fd;
       if (direction == -1) {
         fd = open(filename, O_RDONLY);
@@ -134,8 +138,13 @@ int cmd_exec(unused struct tokens *tokens) {
       execv(cmd, args);
     }
     else {
+      setpgid(cpid, cpid);
+      signal(SIGTTOU, SIG_IGN);
+      tcsetpgrp(0, cpid);
       int status;
       wait(&status);
+      tcsetpgrp(0, getpid());
+      signal(SIGTTOU, SIG_DFL);
     }
   }
   else {
@@ -169,6 +178,8 @@ int cmd_exec2(char *path, char *name, char **args, char *filename, int direction
   printf("direcotry: %s, cmd: %s\n", path, name);
   DIR *dir;
   struct dirent *entry;
+  if (name == NULL)
+    return -1;
   if ((dir = opendir(path)) == NULL) {
     perror("unable to open the directory");
   }
