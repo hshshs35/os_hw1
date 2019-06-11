@@ -104,6 +104,12 @@ int cmd_exec(unused struct tokens *tokens) {
   char *args[len+1];
   char *filename = NULL;
   int direction = 0;
+  int background = 0;
+
+  if (len > 0 && strcmp(tokens_get_token(tokens, len-1), "&") == 0) {
+    background = 1;
+    len -= 1;
+  }
 
   if (len-2 > 0) {
     char *sign = tokens_get_token(tokens, len-2);
@@ -138,13 +144,15 @@ int cmd_exec(unused struct tokens *tokens) {
       execv(cmd, args);
     }
     else {
-      setpgid(cpid, cpid);
-      signal(SIGTTOU, SIG_IGN);
-      tcsetpgrp(0, cpid);
-      int status;
-      wait(&status);
-      tcsetpgrp(0, getpid());
-      signal(SIGTTOU, SIG_DFL);
+      if (!background) {
+        setpgid(cpid, cpid);
+        signal(SIGTTOU, SIG_IGN);
+        tcsetpgrp(0, cpid);
+        int status;
+        wait(&status);
+        tcsetpgrp(0, getpid());
+        signal(SIGTTOU, SIG_DFL);
+      }
     }
   }
   else {
